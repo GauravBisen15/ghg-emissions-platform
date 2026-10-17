@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Carbon Emissions Reporting Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--ink:#14232e;--mute:#5d6e79;--bg:#e9edf0;--card:#fff;--line:#cfd7dc;--s1:#1d4e89;--s2:#d99a00;--ok:#1b7a4b;--bad:#b3261e;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--ink:#e6edf1;--mute:#93a4af;--bg:#0f1a21;--card:#17252e;--line:#2c3e49;--s1:#6ea8e8;--s2:#f0b83a;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:2px solid var(--ink)}
+h1{font-size:20px;margin:0;font-weight:600}h2{font-size:15px;margin:0 0 10px;font-weight:600}
+main{max-width:1240px;margin:0 auto;padding:20px 28px;display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+.card{background:var(--card);border:1px solid var(--line);padding:16px;min-width:0}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media(max-width:900px){main{padding:14px}.c4,.c5,.c6,.c7,.c8{grid-column:span 12}}
+.kpi{font-size:44px;font-weight:600;line-height:1.1;letter-spacing:-.02em}.kpi small{font-size:15px;font-weight:400;color:var(--mute);letter-spacing:0}
+.mute{color:var(--mute);font-size:13px}.up{color:var(--bad)}.down{color:var(--ok)}
+.chart{position:relative;height:280px}
+label{display:block;font-size:13px;color:var(--mute);margin:8px 0 2px}
+input,select,button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);padding:7px 9px;width:100%}
+button{background:var(--ink);color:var(--bg);border-color:var(--ink);cursor:pointer;margin-top:12px;font-weight:500}
+button.sm{width:auto;margin:0;padding:3px 10px;background:none;color:var(--ink);border-color:var(--ink)}
+:focus-visible{outline:3px solid var(--s2);outline-offset:1px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.scroll{overflow-x:auto}.msg{margin-top:8px;font-size:13px;min-height:20px}
+.tag{padding:1px 7px;border:1px solid var(--line);font-size:12px}.tag.o{border-color:var(--s2)}
+</style></head><body>
+<header><div><h1>Carbon Emissions Reporting Platform</h1><div class="mute">GHG Protocol · Scope 1 and 2 · Central Steel Plant</div></div>
+<div style="width:150px"><label for="year" style="margin:0">Reporting year</label><select id="year"></select></div></header>
+<main>
+<section class="card c4"><h2>Emission intensity</h2><div class="kpi" id="kpi">–</div><div class="mute" id="kpiSub"></div><div id="kpiDelta" style="margin-top:6px"></div></section>
+<section class="card c8"><h2>Year-over-year emissions by scope</h2><div class="chart"><canvas id="yoy"></canvas></div></section>
+<section class="card c5"><h2>Emission hotspots by source</h2><div class="chart"><canvas id="hot"></canvas></div></section>
+<section class="card c7"><h2>Monthly emissions trend</h2><div class="chart"><canvas id="mon"></canvas></div></section>
+
+<section class="card c6"><h2>Record emissions</h2>
+<label for="scope">Scope</label><select id="scope"><option value="1">Scope 1 – direct</option><option value="2">Scope 2 – purchased energy</option></select>
+<label for="act">Activity / source</label><select id="act"></select>
+<label for="qty">Quantity <span id="unit"></span></label><input id="qty" type="number" min="0" step="any">
+<label for="dt">Activity date</label><input id="dt" type="date">
+<button id="saveRec">Save emission record</button><div class="msg" id="recMsg" role="status"></div></section>
+<section class="card c6"><h2>Add business metric</h2>
+<label for="mn">Metric</label><input id="mn" list="mlist" value="Tons of Steel Produced"><datalist id="mlist"></datalist>
+<label for="mv">Value</label><input id="mv" type="number" step="any">
+<label for="md">Date</label><input id="md" type="date">
+<button id="saveMet">Save metric</button><div class="msg" id="metMsg" role="status"></div></section>
+
+<section class="card c12"><h2>Latest records</h2><div class="mute">Override replaces the calculated value and writes a mandatory reason to the audit log.</div>
+<div class="scroll"><table id="recs"></table></div></section>
+<section class="card c12"><h2>Audit log</h2><div class="scroll"><table id="aud"></table></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s),api=(p,o)=>fetch('/api'+p,o).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||r.statusText);return j}),
+post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}),
+cmp=new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:2}),num=new Intl.NumberFormat('en',{maximumFractionDigits:2}),
+t=kg=>cmp.format(kg/1000),css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim(),
+esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let meta,charts={};
+function mk(id,cfg){charts[id]?.destroy();Chart.defaults.color=css('--mute');charts[id]=new Chart($('#'+id),{...cfg,options:{responsive:true,maintainAspectRatio:false,...cfg.options}})}
+const tip={callbacks:{label:c=>` ${c.dataset.label||c.label}: ${t(c.parsed.y??c.parsed)} tCO₂e`}};
+async function dash(){
+ const y=+$('#year').value;
+ const [yo,hs,mo,it,ip]=await Promise.all([api('/analytics/yoy?year='+y),api('/analytics/hotspots?year='+y+'&top_n=7'),api('/analytics/monthly?year='+y),api('/analytics/intensity?year='+y),api('/analytics/intensity?year='+(y-1))]);
+ $('#kpi').innerHTML=it.intensity==null?'n/a':`${num.format(it.intensity)} <small>kgCO₂e / tonne steel</small>`;
+ $('#kpiSub').textContent=`${t(it.total_kgco2e)} tCO₂e over ${cmp.format(it.metric_value||0)} t produced in ${y}`;
+ const d=it.intensity&&ip.intensity?(it.intensity-ip.intensity)/ip.intensity*100:null;
+ $('#kpiDelta').innerHTML=d==null?'<span class="mute">No previous-year intensity to compare</span>':`<span class="${d>0?'up':'down'}">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1)}%</span> <span class="mute">vs ${y-1}</span>`;
+ mk('yoy',{type:'bar',data:{labels:[String(yo.previous_year),String(yo.year)],datasets:[{label:'Scope 1',data:[yo.previous.scope1,yo.current.scope1],backgroundColor:css('--s1')},{label:'Scope 2',data:[yo.previous.scope2,yo.current.scope2],backgroundColor:css('--s2')}]},
+  options:{scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>t(v)},title:{display:true,text:'tCO₂e'}}},plugins:{tooltip:tip}}});
+ const pal=['#1d4e89','#3f7cc0','#6ea8e8','#d99a00','#f0b83a','#5d6e79','#93a4af','#cfd7dc'];
+ mk('hot',{type:'doughnut',data:{labels:hs.sources.map(s=>s.activity),datasets:[{data:hs.sources.map(s=>s.kg),backgroundColor:pal,borderColor:css('--card')}]},
+  options:{plugins:{legend:{position:'right',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>` ${c.label}: ${hs.sources[c.dataIndex].pct.toFixed(1)}% (${t(c.parsed)} tCO₂e)`}}}}});
+ const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ mk('mon',{type:'line',data:{labels:M,datasets:[{label:'Total',data:mo.months.map(m=>m.total),borderColor:css('--s1'),backgroundColor:css('--s1'),tension:.25}]},
+  options:{scales:{y:{ticks:{callback:v=>t(v)},title:{display:true,text:'tCO₂e'}}},plugins:{legend:{display:false},tooltip:tip}}});
+ await lists();
+}
+async function lists(){
+ const [r,a]=await Promise.all([api('/emissions?limit=12'),api('/audit-log')]);
+ $('#recs').innerHTML='<tr><th>ID</th><th>Date</th><th>Scope</th><th>Activity</th><th>Qty</th><th>Factor used (kg/unit)</th><th>Final tCO₂e</th><th>Origin</th><th></th></tr>'+
+  r.map(x=>`<tr><td>${x.id}</td><td>${x.activity_date}</td><td>${x.scope}</td><td>${esc(x.activity)}</td><td>${num.format(x.quantity)} ${esc(x.unit)}</td><td>${num.format(x.factor_used)}</td><td>${num.format(x.final_kgco2e/1000)} ${x.is_overridden?'<span class="tag o">overridden</span>':''}</td><td><span class="tag">${x.origin}</span></td><td><button class="sm" onclick="ovr(${x.id},${x.final_kgco2e})">Override</button></td></tr>`).join('');
+ $('#aud').innerHTML='<tr><th>When (UTC)</th><th>Record</th><th>Old → new (kgCO₂e)</th><th>Reason</th><th>By</th></tr>'+
+  (a.length?a.map(x=>`<tr><td>${x.changed_at}</td><td>${x.record_id}</td><td>${num.format(x.old_value)} → ${num.format(x.new_value)}</td><td>${esc(x.reason)}</td><td>${esc(x.changed_by)}</td></tr>`).join(''):'<tr><td colspan="5" class="mute">No overrides yet. Use “Override” on a record above.</td></tr>');
+}
+async function ovr(id,cur){
+ const v=prompt(`New value for record ${id} in kgCO₂e (current ${cur})`);if(v===null)return;
+ const reason=prompt('Reason for override (required)');if(!reason)return alert('A reason is required.');
+ try{await post(`/emissions/${id}/override`,{value_kgco2e:+v,reason,user:'dashboard-user'});await dash()}catch(e){alert(e.message)}
+}
+function fillActs(){const s=+$('#scope').value,l=meta.activities.filter(a=>a.scope===s);$('#act').innerHTML=l.map(a=>`<option data-u="${esc(a.unit)}">${esc(a.activity)}</option>`).join('');setUnit()}
+function setUnit(){$('#unit').textContent='('+($('#act').selectedOptions[0]?.dataset.u||'')+')'}
+$('#scope').onchange=fillActs;$('#act').onchange=setUnit;$('#year').onchange=dash;
+$('#saveRec').onclick=async()=>{try{const r=await post('/emissions',{scope:+$('#scope').value,activity:$('#act').value,quantity:+$('#qty').value,activity_date:$('#dt').value});
+ $('#recMsg').innerHTML=`<span class="down">Saved:</span> ${num.format(r.final_kgco2e/1000)} tCO₂e, using the factor valid on ${r.activity_date} (${num.format(r.factor_used)} kgCO₂e/${esc(r.unit)}).`;await dash()}catch(e){$('#recMsg').innerHTML=`<span class="up">${esc(e.message)}</span>`}};
+$('#saveMet').onclick=async()=>{try{await post('/business-metrics',{metric_name:$('#mn').value,value:+$('#mv').value,date:$('#md').value,unit:$('#mn').value.includes('Employee')?'people':'tonnes',aggregation:$('#mn').value.includes('Employee')?'avg':'sum'});
+ $('#metMsg').innerHTML='<span class="down">Metric saved.</span>';await dash()}catch(e){$('#metMsg').innerHTML=`<span class="up">${esc(e.message)}</span>`}};
+(async()=>{meta=await api('/meta');$('#year').innerHTML=meta.years.map(y=>`<option>${y}</option>`).join('');$('#year').value=meta.years.at(-1);
+ $('#mlist').innerHTML=meta.metrics.map(m=>`<option value="${esc(m.metric_name)}">`).join('');$('#dt').value=$('#md').value=new Date().toISOString().slice(0,10);fillActs();await dash()})();
+</script></body></html>
