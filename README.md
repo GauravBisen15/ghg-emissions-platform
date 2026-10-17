@@ -2,22 +2,26 @@
 
 Prototype for the Exascale Deeptech & AI assignment. Activity data × emission factor = kgCO₂e, driven by versioned master data.
 
+![Dashboard](dashboard.png)
+
 ## Run it
-**Docker (recommended)**
+**Without Docker** (Python 3.10+)
+```bash
+pip install flask openpyxl
+python app.py        # http://localhost:8000
+```
+(On Linux/macOS you can also use `pip install -r requirements.txt`. That file includes `gunicorn`, which does not run on Windows.)
+
+**Docker**
 ```bash
 docker build -t ghg-platform .
 docker run --rm -p 8000:8000 ghg-platform
 # open http://localhost:8000
 ```
-**Without Docker** (Python 3.10+)
-```bash
-pip install -r requirements.txt
-python app.py        # http://localhost:8000
-```
 The SQLite DB is created and seeded automatically on first start (from `data/GHG_Sheet_.xlsx`). Delete `ghg.db` / the container to reseed. The dashboard loads Chart.js and the font from a CDN, so the browser needs internet access.
 
 ## Walkthrough notebook
-`Project_Walkthrough.ipynb` explains the system step by step (tables, versioned factors, historical accuracy, override and audit log, analytics). Open it with Jupyter Lab from the project folder (needs `pandas` and `matplotlib`).
+`Project_Walkthrough.ipynb` explains the system step by step (tables, versioned factors, historical accuracy, override and audit log, analytics). Open it with Jupyter Lab **from the project folder** (needs `pandas` and `matplotlib`).
 
 ## Architecture
 ```mermaid
@@ -72,9 +76,6 @@ Automated tests, authentication (override `user` is a free-text field), and host
 ## Note on testing
 The app was tested locally with Python (`python app.py`). The Dockerfile is provided
 but could not be built on my laptop (Docker Desktop failed to start), so it is untested.
-
-## Dashboard screenshot
-![Dashboard](dashboard.png)
 
 ## Author
 Gaurav Bisen , Data Science Intern assignment submission for Exascale AI.
